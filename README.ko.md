@@ -61,4 +61,5 @@ build.bat
 
 ## 라이선스
 
-[MIT](LICENSE)
+[PolyForm Noncommercial 1.0.0](LICENSE): 개인·학습·연구 등 비상업적 용도로는 자유롭게 쓸 수 있고,
+상업적 용도로는 쓸 수 없습니다.

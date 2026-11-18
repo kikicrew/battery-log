@@ -62,4 +62,5 @@ Limitations:
 
 ## License
 
-[MIT](LICENSE)
+[PolyForm Noncommercial 1.0.0](LICENSE): free for personal, study, research, and other noncommercial use.
+Commercial use is not allowed.
