@@ -41,8 +41,15 @@ LIVE_MS = 2000           # 창이 보일 때 화면 갱신 간격
 SAVE_SEC = 120           # 디스크에 쓰는 최소 간격
 KEEP_DAYS = 60
 TOP_N = 6
-IDLE, SLEEP = "화면·대기", "절전 중"
+IDLE, SLEEP = "화면·대기", "절전 중"                     # 기록 파일에 저장되는 이름 (화면엔 번역해서 보여줌)
 FONT, NUM_FONT = "Malgun Gothic", "Segoe UI"
+KO = ctypes.windll.kernel32.GetUserDefaultUILanguage() & 0x3FF == 0x12   # 윈도우 표시 언어가 한국어인지
+MONTHS = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split()
+
+
+def L(ko, en):
+    """윈도우가 한국어면 한국어, 아니면 영어."""
+    return ko if KO else en
 
 # Material 3 색 (파란 씨앗색)
 LIGHT = dict(bg="#F9F9FF", card="#EDEDF4", high="#E1E2E9", on="#191C20", var="#44474E",
@@ -145,10 +152,14 @@ def battery_health():
 def describe_health(h):
     """(큰 글씨, 작은 글씨)."""
     if not h:
-        return "배터리 수명", "정보를 읽을 수 없어요"
+        return L("배터리 수명", "Battery health"), L("정보를 읽을 수 없어요", "Couldn't read battery info")
     design, full, cycles = h
-    sub = f"완충 {full / 1000:.1f} Wh / 설계 {design / 1000:.1f} Wh"
-    return f"배터리 수명 {min(100, 100 * full / design):.0f}%", sub + (f" · 충전 {cycles}회" if cycles else "")
+    sub = L(f"완충 {full / 1000:.1f} Wh / 설계 {design / 1000:.1f} Wh",
+            f"Full {full / 1000:.1f} Wh / Design {design / 1000:.1f} Wh")
+    if cycles:
+        sub += L(f" · 충전 {cycles}회", f" · {cycles} cycles")
+    pct = f"{min(100, 100 * full / design):.0f}%"
+    return L(f"배터리 수명 {pct}", f"Battery health {pct}"), sub
 
 
 # ---------- 시작 프로그램 등록 ----------
@@ -224,15 +235,19 @@ BASE_RISE, BASE_FALL = 0.01, 0.3   # 대기 소모 추정치가 따라가는 속
 
 def describe(level, plugged, watts, secs):
     """(상태 한마디, 자세한 한 줄) — 창과 트레이 풍선말이 같이 씁니다."""
+    on_battery = L("배터리 사용 중", "On battery")
     if level is None:
-        return "배터리 없음", "배터리를 찾을 수 없어요"
+        return L("배터리 없음", "No battery"), L("배터리를 찾을 수 없어요", "No battery found")
     if not watts:
-        return ("전원 연결됨", "충전하지 않는 중") if plugged else ("배터리 사용 중", "소모 전력 측정 중")
+        if plugged:
+            return L("전원 연결됨", "Plugged in"), L("충전하지 않는 중", "Not charging")
+        return on_battery, L("소모 전력 측정 중", "Measuring power draw")
     h, m = divmod(int(secs) // 60, 60)
-    t = f"{h}시간 {m}분" if h else f"{m}분"
+    t = L(f"{h}시간 {m}분" if h else f"{m}분", f"{h}h {m}m" if h else f"{m}m")
     if watts > 0:
-        return "충전 중", f"{watts:.1f} W로 충전 · 완충까지 약 {t}"
-    return "배터리 사용 중", f"{-watts:.1f} W 사용 · 약 {t} 남음"
+        return L("충전 중", "Charging"), L(f"{watts:.1f} W로 충전 · 완충까지 약 {t}",
+                                          f"Charging at {watts:.1f} W · full in about {t}")
+    return on_battery, L(f"{-watts:.1f} W 사용 · 약 {t} 남음", f"Using {-watts:.1f} W · about {t} left")
 
 
 class Recorder:
@@ -412,6 +427,9 @@ def rpts(x1, y1, x2, y2, r):
             x1, y2, x1, y2 - r, x1, y2 - r, x1, y1 + r, x1, y1 + r, x1, y1)
 
 
+READING = (L("배터리 수명", "Battery health"), L("읽는 중…", "Reading…"))
+
+
 class App:
     W, H = 420, 732
 
@@ -425,7 +443,7 @@ class App:
         self.last_sample = 0.0
         self.auto = get_autostart()
 
-        root.title("배터리 사용 기록기")
+        root.title(L("배터리 사용 기록기", "Battery Log"))
         root.geometry(f"{round(self.W * self.s)}x{round(self.H * self.s)}")
         root.resizable(False, False)
         root.configure(bg=c["bg"])
@@ -486,8 +504,8 @@ class App:
 
     def build(self):
         c = self.c
-        self.text(24, 36, text="배터리", anchor="w", fill=c["on"], font=self.font(24, True))
-        self.button(340, 22, 404, 50, "종료", self.quit, 12)
+        self.text(24, 36, text=L("배터리", "Battery"), anchor="w", fill=c["on"], font=self.font(24, True))
+        self.button(340, 22, 404, 50, L("종료", "Quit"), self.quit, 12)
 
         self.card(16, 64, 404, 232, 40, fill=c["pc"])                       # 큰 카드
         self.t_pct = self.text(36, 116, anchor="w", fill=c["on_pc"],
@@ -508,15 +526,16 @@ class App:
         self.card(16, 560, 404, 628, 34, fill=c["card"])                    # 배터리 수명 카드
         self.t_htitle = self.text(36, 582, anchor="w", fill=c["on"], font=self.font(14, True))
         self.t_hsub = self.text(36, 607, anchor="w", fill=c["var"], font=self.font(11))
-        self.button(312, 578, 388, 610, "리포트", self.open_report, 12, "p", "on_p")
+        self.button(312, 578, 388, 610, L("리포트", "Report"), self.open_report, 12, "p", "on_p")
 
         self.pill(16, 640, 404, 692, c["card"], tags="auto")                # 자동 실행 스위치
-        self.text(40, 666, text="윈도우 시작 시 자동 실행", anchor="w", fill=c["on"],
-                  font=self.font(13), tags="auto")
+        self.text(40, 666, text=L("윈도우 시작 시 자동 실행", "Start with Windows"), anchor="w",
+                  fill=c["on"], font=self.font(13), tags="auto")
         self.cv.tag_bind("auto", "<ButtonRelease-1>", lambda e: self.set_auto(not self.auto))
         self.draw_switch()
 
-        self.text(210, 712, text="창을 닫아도 트레이에서 계속 기록해요 · 앱별 수치는 추정치",
+        self.text(210, 712, text=L("창을 닫아도 트레이에서 계속 기록해요 · 앱별 수치는 추정치",
+                                   "Keeps logging from the tray · per-app numbers are estimates"),
                   fill=c["var"], font=self.font(10))
 
     def draw_switch(self):
@@ -537,18 +556,23 @@ class App:
             return
         self.rows_sig = sig
         day = self.rec.days.get(key, {})
-        m, d = key.split("-")[1:]
-        self.cv.itemconfig(self.t_day, text="오늘" if key == today else f"{int(m)}월 {int(d)}일")
-        self.cv.itemconfig(self.t_total, text=f"기록된 사용량 {sum(day.values()):.1f}%")
+        m, d = map(int, key.split("-")[1:])
+        label = L(f"{m}월 {d}일", f"{MONTHS[m - 1]} {d}")
+        self.cv.itemconfig(self.t_day, text=L("오늘", "Today") if key == today else label)
+        total = f"{sum(day.values()):.1f}%"
+        self.cv.itemconfig(self.t_total, text=L(f"기록된 사용량 {total}", f"Logged {total}"))
         self.cv.delete("rows")
         if not day:
-            self.text(210, 416, text="아직 기록이 없어요\n배터리로 쓰는 동안 자동으로 채워집니다",
+            self.text(210, 416, text=L("아직 기록이 없어요\n배터리로 쓰는 동안 자동으로 채워집니다",
+                                       "Nothing logged yet\nIt fills in while you run on battery"),
                       fill=c["var"], font=self.font(12), justify="center", tags="rows")
             return
         ranked = sorted(day.items(), key=lambda kv: -kv[1])[:TOP_N]
         biggest = ranked[0][1]
+        shown = {IDLE: L(IDLE, "Screen & idle"), SLEEP: L(SLEEP, "Asleep")}
         for i, (name, v) in enumerate(ranked):
             y = 296 + 40 * i
+            name = shown.get(name, name)
             name = name if len(name) <= 26 else name[:25] + "…"
             self.text(36, y + 12, text=name, anchor="w", fill=c["on"], font=self.font(13), tags="rows")
             self.text(384, y + 12, text=f"{v:.1f}%", anchor="e", fill=c["var"],
@@ -557,7 +581,7 @@ class App:
             self.pill(36, y + 26, 36 + max(6, 348 * v / biggest), y + 32, c["p"], tags="rows")
 
     def render(self, level, state, detail):
-        health = self.health or ("배터리 수명", "읽는 중…")
+        health = self.health or READING
         sig = (None if level is None else round(level), state, detail, health)
         if sig != self.head_sig:
             self.head_sig = sig
@@ -583,9 +607,9 @@ class App:
             shown = self.root.state() == "normal"
             if shown:
                 self.render(level, state, detail)
-            self.tray.tip(detail if level is None else f"배터리 {round(level)}% · {detail}")
+            self.tray.tip(detail if level is None else f"{L('배터리', 'Battery')} {round(level)}% · {detail}")
         except Exception as e:
-            self.cv.itemconfig(self.t_detail, text=f"오류: {e}")
+            self.cv.itemconfig(self.t_detail, text=f"{L('오류', 'Error')}: {e}")
         self.job = self.root.after(LIVE_MS if shown else SAMPLE_SEC * 1000, self.tick)
 
     def poke(self):
@@ -614,23 +638,26 @@ class App:
                 powercfg_report("/output", REPORT_PATH)
                 os.startfile(REPORT_PATH)
             except Exception as e:
-                self.health = ("리포트를 만들지 못했어요", str(e)[:48])
+                self.health = (L("리포트를 만들지 못했어요", "Couldn't create the report"), str(e)[:48])
         threading.Thread(target=work, daemon=True).start()
 
     def set_auto(self, on):
         try:
             set_autostart(on)
         except OSError as e:
-            self.cv.itemconfig(self.t_detail, text=f"자동 실행 설정 실패: {e}")
+            self.cv.itemconfig(self.t_detail, text=L(f"자동 실행 설정 실패: {e}", f"Couldn't change startup: {e}"))
         self.auto = get_autostart()
         self.draw_switch()
 
     def ask_autostart(self):
         from tkinter import messagebox
         self.set_auto(messagebox.askyesno(
-            "배터리 사용 기록기",
-            "윈도우를 시작할 때 자동으로 실행할까요?\n\n"
-            "트레이에 숨어서 조용히 기록합니다.\n나중에 창 아래 스위치로 바꿀 수 있어요.",
+            L("배터리 사용 기록기", "Battery Log"),
+            L("윈도우를 시작할 때 자동으로 실행할까요?\n\n"
+              "트레이에 숨어서 조용히 기록합니다.\n나중에 창 아래 스위치로 바꿀 수 있어요.",
+              "Start Battery Log when Windows starts?\n\n"
+              "It stays quietly in the tray and keeps logging.\n"
+              "You can change this later with the switch at the bottom."),
             parent=self.root))
 
     def on_tray(self, what):
@@ -646,7 +673,7 @@ class App:
         self.root.lift()
         self.root.focus_force()
         if self.health is None:
-            self.health = ("배터리 수명", "읽는 중…")
+            self.health = READING
             threading.Thread(target=self.load_health, daemon=True).start()
         settings = self.rec.log["settings"]
         if not settings.get("asked"):                     # 처음 창을 열 때 한 번만 물어봄
@@ -669,7 +696,7 @@ class App:
 
 # ---------- 자체 확인 ----------
 def _selftest():
-    global battery, cpu_times, LOG_PATH
+    global battery, cpu_times, LOG_PATH, KO
 
     assert ctypes.sizeof(NOTIFYICONDATAW) == 976
     level = battery()[0]
@@ -678,10 +705,20 @@ def _selftest():
     assert len(me) == 1 and abs(me[0] - time.process_time()) < 0.5, me
     assert all(pid for pid, _ in cpu_times())
 
+    lang = KO
+    KO = True
     assert describe(None, True, 0, None)[0] == "배터리 없음"
     assert describe(80, False, -6.0, 3 * 3600 + 120) == ("배터리 사용 중", "6.0 W 사용 · 약 3시간 2분 남음")
     assert describe(80, True, 20.0, 900) == ("충전 중", "20.0 W로 충전 · 완충까지 약 15분")
     assert describe(100, True, 0, None)[0] == "전원 연결됨"
+    KO = False
+    assert describe(None, True, 0, None)[0] == "No battery"
+    assert describe(80, False, -6.0, 3 * 3600 + 120) == ("On battery", "Using 6.0 W · about 3h 2m left")
+    assert describe(80, True, 20.0, 900) == ("Charging", "Charging at 20.0 W · full in about 15m")
+    assert describe(100, True, 0, None)[0] == "Plugged in"
+    assert describe_health((51480, 46630, 125)) == (
+        "Battery health 91%", "Full 46.6 Wh / Design 51.5 Wh · 125 cycles")
+    KO = True                                             # 아래 한국어 확인을 위해
 
     sample = (b'<?xml version="1.0" encoding="utf-8"?>'
               b'<BatteryReport xmlns="http://schemas.microsoft.com/battery/2012"><Batteries><Battery>'
@@ -694,6 +731,7 @@ def _selftest():
     assert describe_health((51480, 46630, 125)) == (
         "배터리 수명 91%", "완충 46.6 Wh / 설계 51.5 Wh · 충전 125회")
     assert describe_health(None)[1] == "정보를 읽을 수 없어요"
+    KO = lang
     h = battery_health()                                  # 이 컴퓨터에서 실제로
     assert h is None or 0 < h[1] <= h[0] * 1.2, h
 
