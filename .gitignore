@@ -1,0 +1,9 @@
+# 개인 사용 기록
+battery_log.json
+battery_log.json.*
+
+# 빌드 결과
+build/
+dist/
+*.spec
+__pycache__/
